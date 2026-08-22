@@ -1,0 +1,172 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String          @id @default(cuid())
+  name          String
+  email         String          @unique
+  passwordHash  String?
+  role          String          @default("USER") // USER, ADMIN
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  accounts      ConnectedAccount[]
+  contentItems  ContentItem[]
+  aiSuggestions AiSuggestion[]
+  activityLogs  ActivityLog[]
+  settings      UserSettings?
+}
+
+model ConnectedAccount {
+  id                 String              @id @default(cuid())
+  userId             String
+  platform           String              // FACEBOOK, INSTAGRAM, WHATSAPP
+  platformAccountId  String              // e.g. Page ID, IG User ID, Phone Number ID
+  accountName        String              // Page name, IG handle, Business number
+  accountType        String              // PAGE, BUSINESS, CREATOR, WHATSAPP_BUSINESS
+  avatarUrl          String?
+  connectionStatus   String              @default("ACTIVE") // ACTIVE, EXPIRED, REVOKED
+  connectedAt        DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenVault         OAuthTokenVault?
+  permissions        AccountPermission[]
+  contentItems       ContentItem[]
+  comments           Comment[]
+  messages           Message[]
+}
+
+model OAuthTokenVault {
+  id                     String           @id @default(cuid())
+  accountId              String           @unique
+  encryptedAccessToken   String           // AES-256-GCM ciphertext:iv:authTag
+  encryptedRefreshToken  String?
+  tokenType              String           @default("BEARER")
+  scopes                 String           // JSON string array of granted scopes
+  expiresAt              DateTime?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  account                ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model AccountPermission {
+  id             String           @id @default(cuid())
+  accountId      String
+  permissionName String           // pages_manage_posts, instagram_basic, whatsapp_business_messaging, etc.
+  grantedStatus  Boolean          @default(true)
+  grantedAt      DateTime         @default(now())
+
+  account        ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model ContentItem {
+  id             String            @id @default(cuid())
+  userId         String
+  accountId      String?
+  platform       String            // FACEBOOK, INSTAGRAM, WHATSAPP_BROADCAST
+  title          String?
+  contentText    String
+  mediaUrls      String?           // JSON array of image/video URLs
+  status         String            @default("DRAFT") // DRAFT, SCHEDULED, PUBLISHING, PUBLISHED, FAILED
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+  externalPostId String?          // ID returned by Meta API after publishing
+  errorDetails   String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account        ConnectedAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  aiSuggestions  AiSuggestion[]
+}
+
+model Comment {
+  id                 String           @id @default(cuid())
+  accountId          String
+  platform           String           // FACEBOOK, INSTAGRAM
+  externalCommentId  String
+  externalPostId     String
+  authorName         String
+  authorId           String
+  commentText        String
+  sentiment          String?          // POSITIVE, NEUTRAL, NEGATIVE, INQUIRY
+  priority           String?          // LOW, MEDIUM, HIGH, URGENT
+  suggestedReply     String?
+  replyStatus        String           @default("UNREPLIED") // UNREPLIED, REPLIED, DISMISSED
+  repliedText        String?
+  repliedAt          DateTime?
+  createdAt          DateTime         @default(now())
+
+  account            ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model Message {
+  id                 String           @id @default(cuid())
+  accountId          String
+  platform           String           // INSTAGRAM, WHATSAPP
+  conversationId     String
+  senderId           String
+  senderName         String
+  messageText        String
+  direction          String           // INBOUND, OUTBOUND
+  intentCategory     String?          // QUESTION, COMPLAINT, SALES_INQUIRY, FEEDBACK
+  priority           String?          // NORMAL, HIGH, URGENT
+  suggestedReply     String?
+  isApproved         Boolean          @default(false)
+  status             String           @default("RECEIVED") // RECEIVED, DRAFTED, SENT, FAILED
+  externalMessageId  String?
+  createdAt          DateTime         @default(now())
+
+  account            ConnectedAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model AiSuggestion {
+  id               String       @id @default(cuid())
+  userId           String
+  contentItemId    String?
+  sourceType       String       // CAPTION, HASHTAGS, REPLY, SUMMARY, ANALYTICS_QUERY
+  promptInput      String
+  generatedContent String
+  approvedStatus   String       @default("PENDING") // PENDING, APPROVED, MODIFIED, REJECTED
+  createdAt        DateTime     @default(now())
+
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contentItem      ContentItem? @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+}
+
+model ActivityLog {
+  id           String       @id @default(cuid())
+  userId       String
+  actorType    String       // USER, AI, SCHEDULER, META_WEBHOOK
+  actionType   String       // OAUTH_CONNECT, POST_CREATE, POST_PUBLISH, COMMENT_REPLY, MESSAGE_SEND, AI_GENERATE
+  platform     String?      // FACEBOOK, INSTAGRAM, WHATSAPP, SYSTEM
+  actionStatus String       // SUCCESS, FAILED, PENDING
+  details      String?      // JSON details or human-readable message
+  ipAddress    String?
+  createdAt    DateTime     @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserSettings {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  metaAppId             String?
+  metaAppSecret         String?
+  geminiApiKey          String?
+  simulationModeEnabled Boolean  @default(true)
+  autoReplyApprovalReq  Boolean  @default(true)
+  emailNotifications    Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
